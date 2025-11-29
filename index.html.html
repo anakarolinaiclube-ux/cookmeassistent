@@ -266,74 +266,100 @@
         }
 
         // ==========================================
-        // LÓGICA DE BUSCA (LOCAL)
         // ==========================================
-        function suggestRecipes() {
-            const input = document.getElementById('ingredients-input').value;
-            
-            if(!input.trim()) {
-                alert("Por favor, digite alguns ingredientes!");
-                return;
+// LÓGICA DE BUSCA (AGORA COM OPENAI API)
+// ==========================================
+
+async function suggestRecipes() {
+    const input = document.getElementById('ingredients-input').value;
+    
+    if(!input.trim()) {
+        alert("Por favor, digite alguns ingredientes!");
+        return;
+    }
+
+    document.getElementById('loading').classList.replace('hidden', 'flex');
+    document.getElementById('results-area').classList.add('hidden');
+    document.getElementById('shopping-list-container').classList.add('hidden');
+
+    await processSearch(input);
+}
+
+async function processSearch(userInput) {
+    const apiKey = "SUA_API_KEY_AQUI"; // coloque sua chave aqui
+
+    const promptText = `
+        Você é um chef assistente. O usuário tem: "${userInput}".
+        Sugira 6 receitas criativas e coerentes com esses ingredientes.
+
+        Responda APENAS com um Array JSON válido:
+        [
+            {
+                "title": "Nome da Receita",
+                "time": "20 min",
+                "tags": ["Tag1", "Tag2"],
+                "ingredients": ["ingrediente 1", "ingrediente 2"],
+                "steps": ["Passo 1", "Passo 2"]
             }
+        ]
+        Não use markdown, não explique nada. Apenas o JSON puro.
+    `;
 
-            // UI Loading
-            document.getElementById('loading').classList.replace('hidden', 'flex');
-            document.getElementById('results-area').classList.add('hidden');
-            document.getElementById('shopping-list-container').classList.add('hidden');
+    try {
+        const response = await fetch("https://api.openai.com/v1/responses", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: "gpt-4o",
+                input: promptText,
+                temperature: 0.7
+            })
+        });
 
-            // Simular tempo de processamento (500ms)
-            setTimeout(() => {
-                processSearch(input);
-            }, 600);
-        }
+        if(!response.ok) throw new Error("Erro ao conectar com a API");
 
-        function processSearch(userInput) {
-            // 1. Normalizar entrada do usuário (array de palavras limpas)
-            const userIngredients = userInput.toLowerCase().split(',')
-                .map(i => i.trim())
-                .filter(i => i.length > 0);
+        const data = await response.json();
 
-            // 2. Algoritmo de Busca e Pontuação
-            const results = recipesDB.map(recipe => {
-                const userHas = recipe.ingredients.filter(recItem => {
-                    return userIngredients.some(userItem => 
-                        userItem.includes(recItem) || recItem.includes(userItem)
-                    );
-                });
+        let jsonString = data.output_text;
+        jsonString = jsonString.replace(/^```json/g, '').replace(/```$/g, '').trim();
 
-                const missing = recipe.ingredients.filter(recItem => {
-                    if(pantryStaples.includes(recItem)) return false;
-                    const hasIt = userIngredients.some(userItem => 
-                        userItem.includes(recItem) || recItem.includes(userItem)
-                    );
-                    return !hasIt;
-                });
+        const recipesFromAI = JSON.parse(jsonString);
 
-                return {
-                    ...recipe,
-                    missing: missing,
-                    matchCount: userHas.length,
-                    missingCount: missing.length
-                };
+        const userIngredientsList = userInput.toLowerCase().split(',')
+            .map(i => i.trim());
+
+        const staples = pantryStaples;
+
+        currentRecipes = recipesFromAI.map(recipe => {
+            const missingItems = recipe.ingredients.filter(item => {
+                const lower = item.toLowerCase();
+
+                if (staples.some(s => lower.includes(s))) return false;
+
+                const hasItem = userIngredientsList.some(
+                    u => u.includes(lower) || lower.includes(u)
+                );
+
+                return !hasItem;
             });
 
-            // 3. Filtragem e Ordenação
-            let filtered = results.filter(r => r.matchCount > 0);
+            return { ...recipe, missing: missingItems };
+        });
 
-            filtered.sort((a, b) => {
-                if (a.missingCount !== b.missingCount) {
-                    return a.missingCount - b.missingCount;
-                }
-                return b.matchCount - a.matchCount;
-            });
+        document.getElementById('loading').classList.replace('flex', 'hidden');
+        renderRecipes(userIngredientsList);
+        document.getElementById('results-area').classList.remove('hidden');
 
-            currentRecipes = filtered.slice(0, 20);
+    } catch (err) {
+        console.error(err);
+        alert("Erro ao gerar receitas. Verifique sua API key.");
+        document.getElementById('loading').classList.replace('flex', 'hidden');
+    }
+}
 
-            document.getElementById('loading').classList.replace('flex', 'hidden');
-            renderRecipes(userIngredients);
-            document.getElementById('results-area').classList.remove('hidden');
-            document.getElementById('results-area').scrollIntoView({ behavior: 'smooth' });
-        }
 
         // Renderizar Cards
         function renderRecipes(userIngredients) {
