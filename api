@@ -1,13 +1,15 @@
 export default async function handler(req, res) {
   try {
-    if (req.method !== "POST") return res.status(405).json({ error: "Método não permitido" });
+    if (req.method !== "POST")
+      return res.status(405).json({ error: "Método não permitido" });
 
     const { ingredients } = req.body;
-    if (!ingredients || ingredients.trim() === "") return res.status(400).json({ error: "Ingredientes não fornecidos" });
+    if (!ingredients || ingredients.trim() === "")
+      return res.status(400).json({ error: "Ingredientes não fornecidos" });
 
     const prompt = `
-      Gere 6 receitas criativas baseadas nestes ingredientes: "${ingredients}".
-      Retorne APENAS um JSON no formato:
+      Gere 6 receitas criativas usando os ingredientes: "${ingredients}".
+      Responda SOMENTE com JSON no formato:
       [
         {
           "title": "",
@@ -17,26 +19,41 @@ export default async function handler(req, res) {
           "steps": []
         }
       ]
-      Nada de texto adicional, apenas JSON puro.
     `;
 
-    const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({ model: "gpt-4o", input: prompt, temperature: 0.7 })
-    });
+    const openaiResponse = await fetch(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          "OpenAI-Beta": "assistants=v2",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: "Você é um chef que responde sempre em JSON puro.",
+            },
+            { role: "user", content: prompt },
+          ],
+          temperature: 0.7,
+        })
+      }
+    );
 
     const data = await openaiResponse.json();
-    let jsonString = data.output_text || JSON.stringify(data.output?.[0]?.content || "");
-    jsonString = jsonString.replace(/^```json/, "").replace(/```$/, "").trim();
+
+    const jsonString = data.choices[0].message.content.trim();
     const recipes = JSON.parse(jsonString);
 
     return res.status(200).json({ recipes });
   } catch (error) {
     console.error("Erro no servidor:", error);
-    return res.status(500).json({ error: "Erro ao gerar receitas. Tente novamente." });
+    return res
+      .status(500)
+      .json({ error: "Erro ao gerar receitas. Verifique sua API Key." });
   }
 }
